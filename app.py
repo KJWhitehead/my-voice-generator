@@ -84,7 +84,7 @@ if st.button("➕ Add Line to Script"):
 
 st.markdown("---")
 
-# Helper function to generate audio with structural audio padding
+# Helper function to generate audio using precise cloud-level SSML tags
 async def generate_conversation_audio(script):
     full_audio = b""
     
@@ -92,21 +92,21 @@ async def generate_conversation_audio(script):
         if line["text"].strip():
             system_voice = VOICE_DICT[line["voice_label"]]
             pause_secs = line["pause"]
+            ms_pause = int(pause_secs * 1000)
             
-            # 1. Create a true digital silence gap if requested
-            if pause_secs > 0:
-                # Microsoft Edge TTS audio uses 24000Hz mono MP3 standard out-of-the-box.
-                # A safe way to inject true mathematical silent pacing into an MP3 binary matrix
-                # without messing up the file formatting headers is utilizing the asyncio sleep scheduler 
-                # combined with generating a brief blank voice break chunk.
-                await asyncio.sleep(pause_secs)
-                
-                # To guarantee the media file player physically pauses the timeline chronologically,
-                # we add a tiny empty data cushion that player frameworks interpret as a track spacing gap.
-                full_audio += b'\x00' * int(pause_secs * 3000) 
+            # Construct a fully formed, valid SSML block.
+            # This embeds the speaker selection and the break command directly into the text matrix.
+            ssml_string = f"""
+            <speak version='1.0' xmlns='http://w3.org' xml:lang='en-US'>
+                <voice name='{system_voice}'>
+                    <break time='{ms_pause}ms'/>
+                    {line['text']}
+                </voice>
+            </speak>
+            """
             
-            # 2. Generate the dialogue line
-            communicate = edge_tts.Communicate(line["text"], system_voice)
+            # We pass the raw SSML string as the text payload. Edge-TTS detects <speak> and processes it natively.
+            communicate = edge_tts.Communicate(ssml_string, system_voice)
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     full_audio += chunk["data"]
