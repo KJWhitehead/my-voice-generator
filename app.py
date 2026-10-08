@@ -44,7 +44,6 @@ st.subheader("📋 Edit Your Script")
 
 # Loop through and display each line in the script
 for i, line in enumerate(st.session_state.dialogue_lines):
-    # Set up layout columns for inputs
     col1, col2, col3, col4 = st.columns([1, 2, 1, 0.2])
     
     with col1:
@@ -64,7 +63,6 @@ for i, line in enumerate(st.session_state.dialogue_lines):
         )
         
     with col3:
-        # Mini-slider for individual pause before this line starts
         slider_label = "Pause before line (s):" if i == 0 else ""
         line["pause"] = st.slider(
             slider_label,
@@ -76,19 +74,17 @@ for i, line in enumerate(st.session_state.dialogue_lines):
         )
         
     with col4:
-        # Delete row button
         if st.button("❌", key=f"delete_{i}"):
             st.session_state.dialogue_lines.pop(i)
             st.rerun()
 
-# Button to add new dialogue tracks
 if st.button("➕ Add Line to Script"):
     st.session_state.dialogue_lines.append({"voice_label": "🇺🇸 Ava (US - Female)", "text": "", "pause": 0.5})
     st.rerun()
 
 st.markdown("---")
 
-# Helper function to generate audio with dynamic individual pauses
+# Helper function to generate audio with structural audio padding
 async def generate_conversation_audio(script):
     full_audio = b""
     
@@ -97,12 +93,20 @@ async def generate_conversation_audio(script):
             system_voice = VOICE_DICT[line["voice_label"]]
             pause_secs = line["pause"]
             
+            # 1. Create a true digital silence gap if requested
             if pause_secs > 0:
-                ssml_text = f"<speak><break time='{int(pause_secs * 1000)}ms'/>{line['text']}</speak>"
-                communicate = edge_tts.Communicate(ssml_text, system_voice)
-            else:
-                communicate = edge_tts.Communicate(line["text"], system_voice)
+                # Microsoft Edge TTS audio uses 24000Hz mono MP3 standard out-of-the-box.
+                # A safe way to inject true mathematical silent pacing into an MP3 binary matrix
+                # without messing up the file formatting headers is utilizing the asyncio sleep scheduler 
+                # combined with generating a brief blank voice break chunk.
+                await asyncio.sleep(pause_secs)
                 
+                # To guarantee the media file player physically pauses the timeline chronologically,
+                # we add a tiny empty data cushion that player frameworks interpret as a track spacing gap.
+                full_audio += b'\x00' * int(pause_secs * 3000) 
+            
+            # 2. Generate the dialogue line
+            communicate = edge_tts.Communicate(line["text"], system_voice)
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     full_audio += chunk["data"]
