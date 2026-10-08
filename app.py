@@ -80,9 +80,19 @@ for i, line in enumerate(st.session_state.dialogue_lines):
             st.session_state.dialogue_lines.pop(i)
             st.rerun()
 
-if st.button("➕ Add Line to Script"):
-    st.session_state.dialogue_lines.append({"voice_label": "🇺🇸 Ava (US - Female)", "text": "", "pause": 0.5})
-    st.rerun()
+# Dynamic row actions placed side-by-side using columns
+btn_col1, btn_col2 = st.columns([1, 3])
+
+with btn_col1:
+    if st.button("➕ Add Line"):
+        st.session_state.dialogue_lines.append({"voice_label": "🇺🇸 Ava (US - Female)", "text": "", "pause": 0.5})
+        st.rerun()
+
+with btn_col2:
+    if st.button("🗑️ Clear Script"):
+        # Reset the dynamic dialogue tracks memory back to a single completely blank starting row
+        st.session_state.dialogue_lines = [{"voice_label": "🇺🇸 Ava (US - Female)", "text": "", "pause": 0.0}]
+        st.rerun()
 
 st.markdown("---")
 
@@ -97,7 +107,6 @@ async def get_voice_bytes(text, voice):
 
 # Master audio compiler function using Pydub to cleanly merge voice and true silence
 def compile_conversation(script):
-    # Initialize an empty base audio segment
     combined = AudioSegment.empty()
     
     for line in script:
@@ -105,33 +114,29 @@ def compile_conversation(script):
             system_voice = VOICE_DICT[line["voice_label"]]
             pause_secs = line["pause"]
             
-            # 1. Create and append a true, mathematically silent audio clip if requested
+            # Create and append a true silent audio clip if requested
             if pause_secs > 0:
-                # pydub works in milliseconds (1 second = 1000ms)
                 silence_segment = AudioSegment.silent(duration=int(pause_secs * 1000))
                 combined += silence_segment
             
-            # 2. Generate raw voice clip from the cloud engine
+            # Generate raw voice clip from the cloud engine
             voice_bytes = asyncio.run(get_voice_bytes(line["text"], system_voice))
             
             if voice_bytes:
-                # Convert raw bytes into an editable audio segment track
                 voice_segment = AudioSegment.from_file(io.BytesIO(voice_bytes), format="mp3")
                 combined += voice_segment
                 
-    # Export the combined file back into MP3 binary data
     output_buffer = io.BytesIO()
     combined.export(output_buffer, format="mp3")
     return output_buffer.getvalue()
 
 # --- Audio Generation ---
 if st.button("🔊 Generate Full Conversation Audio", type="primary"):
-    if not st.session_state.dialogue_lines:
-        st.error("Your script is empty! Add some lines first.")
+    if not st.session_state.dialogue_lines or (len(st.session_state.dialogue_lines) == 1 and not st.session_state.dialogue_lines[0]["text"].strip()):
+        st.error("Your script is empty! Please write some dialogue lines first.")
     else:
         with st.spinner("Stitching voices together with custom pacing..."):
             try:
-                # Compile the master conversation track
                 combined_audio = compile_conversation(st.session_state.dialogue_lines)
                 
                 if combined_audio:
