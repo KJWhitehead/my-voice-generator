@@ -99,9 +99,9 @@ async def generate_conversation_audio(script):
             pause_secs = line["pause"]
             
             # Using SSML to inject the unique pause time specified for this specific line
-            if pause_secs > 0:
-                ssml_text = f"<speak><break time='{int(pause_secs * 1000)}ms'/>{line['text']}</speak>"
-                communicate = edge_tts.Communicate(ssml_text, system_voice, is_ssml=True)
+if pause_secs > 0:
+    ssml_text = f"<speak><break time='{int(pause_secs * 1000)}ms'/>{line['text']}</speak>"
+    communicate = edge_tts.Communicate(ssml_text, system_voice)
             else:
                 communicate = edge_tts.Communicate(line["text"], system_voice)
                 
