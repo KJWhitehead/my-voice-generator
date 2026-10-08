@@ -1,6 +1,8 @@
 import streamlit as st
 import asyncio
 import edge_tts
+import io
+from pydub import AudioSegment
 
 # App Title
 st.title("🗣 Multi-Voice Conversation Generator")
@@ -84,43 +86,53 @@ if st.button("➕ Add Line to Script"):
 
 st.markdown("---")
 
-# Helper function to generate audio using precise cloud-level SSML tags
-async def generate_conversation_audio(script):
-    full_audio = b""
+# Helper function to generate individual speech segments
+async def get_voice_bytes(text, voice):
+    communicate = edge_tts.Communicate(text, voice)
+    audio_data = b""
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            audio_data += chunk["data"]
+    return audio_data
+
+# Master audio compiler function using Pydub to cleanly merge voice and true silence
+def compile_conversation(script):
+    # Initialize an empty base audio segment
+    combined = AudioSegment.empty()
     
     for line in script:
         if line["text"].strip():
             system_voice = VOICE_DICT[line["voice_label"]]
             pause_secs = line["pause"]
-            ms_pause = int(pause_secs * 1000)
             
-            # Construct a fully formed, valid SSML block.
-            # This embeds the speaker selection and the break command directly into the text matrix.
-            ssml_string = f"""
-            <speak version='1.0' xmlns='http://w3.org' xml:lang='en-US'>
-                <voice name='{system_voice}'>
-                    <break time='{ms_pause}ms'/>
-                    {line['text']}
-                </voice>
-            </speak>
-            """
+            # 1. Create and append a true, mathematically silent audio clip if requested
+            if pause_secs > 0:
+                # pydub works in milliseconds (1 second = 1000ms)
+                silence_segment = AudioSegment.silent(duration=int(pause_secs * 1000))
+                combined += silence_segment
             
-            # We pass the raw SSML string as the text payload. Edge-TTS detects <speak> and processes it natively.
-            communicate = edge_tts.Communicate(ssml_string, system_voice)
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    full_audio += chunk["data"]
-                    
-    return full_audio
+            # 2. Generate raw voice clip from the cloud engine
+            voice_bytes = asyncio.run(get_voice_bytes(line["text"], system_voice))
+            
+            if voice_bytes:
+                # Convert raw bytes into an editable audio segment track
+                voice_segment = AudioSegment.from_file(io.BytesIO(voice_bytes), format="mp3")
+                combined += voice_segment
+                
+    # Export the combined file back into MP3 binary data
+    output_buffer = io.BytesIO()
+    combined.export(output_buffer, format="mp3")
+    return output_buffer.getvalue()
 
 # --- Audio Generation ---
 if st.button("🔊 Generate Full Conversation Audio", type="primary"):
     if not st.session_state.dialogue_lines:
         st.error("Your script is empty! Add some lines first.")
     else:
-        with st.spinner("Compiling script with custom dialogue pauses..."):
+        with st.spinner("Stitching voices together with custom pacing..."):
             try:
-                combined_audio = asyncio.run(generate_conversation_audio(st.session_state.dialogue_lines))
+                # Compile the master conversation track
+                combined_audio = compile_conversation(st.session_state.dialogue_lines)
                 
                 if combined_audio:
                     st.success("🎉 Conversation compiled successfully!")
