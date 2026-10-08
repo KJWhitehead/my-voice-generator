@@ -65,7 +65,6 @@ for i, line in enumerate(st.session_state.dialogue_lines):
         
     with col3:
         # Mini-slider for individual pause before this line starts
-        # Only show the label on the first line to keep it clean
         slider_label = "Pause before line (s):" if i == 0 else ""
         line["pause"] = st.slider(
             slider_label,
@@ -98,10 +97,9 @@ async def generate_conversation_audio(script):
             system_voice = VOICE_DICT[line["voice_label"]]
             pause_secs = line["pause"]
             
-            # Using SSML to inject the unique pause time specified for this specific line
-if pause_secs > 0:
-    ssml_text = f"<speak><break time='{int(pause_secs * 1000)}ms'/>{line['text']}</speak>"
-    communicate = edge_tts.Communicate(ssml_text, system_voice)
+            if pause_secs > 0:
+                ssml_text = f"<speak><break time='{int(pause_secs * 1000)}ms'/>{line['text']}</speak>"
+                communicate = edge_tts.Communicate(ssml_text, system_voice)
             else:
                 communicate = edge_tts.Communicate(line["text"], system_voice)
                 
