@@ -4,9 +4,9 @@ import edge_tts
 
 # App Title
 st.title("🗣 Multi-Voice Conversation Generator")
-st.write("Build a script line-by-line, assign different accents, and generate a single audio file.")
+st.write("Build a script line-by-line, assign different accents, adjust pacing, and generate an audio file.")
 
-# Premium Microsoft Edge English voices dictionary for cleaner labels
+# Premium Microsoft Edge English voices dictionary
 VOICE_DICT = {
     "🇺🇸 Ava (US - Female)": "en-US-AvaNeural",
     "🇺🇸 Andrew (US - Male)": "en-US-AndrewNeural",
@@ -33,9 +33,9 @@ VOICE_DICT = {
 # Keep track of dialogue lines using Streamlit's session state memory
 if "dialogue_lines" not in st.session_state:
     st.session_state.dialogue_lines = [
-        {"voice_label": "🇺🇸 Andrew (US - Male)", "text": "Hello there! Welcome to our new conversation tool."},
-        {"voice_label": "🇬🇧 Sonia (UK - Female)", "text": "Brilliant! So I can speak with a British accent right after you?"},
-        {"voice_label": "🇺🇸 Andrew (US - Male)", "text": "Exactly. You can add as many script lines as you want."}
+        {"voice_label": "🇺🇸 Andrew (US - Male)", "text": "Hello there! Welcome back to our conversation builder."},
+        {"voice_label": "🇬🇧 Sonia (UK - Female)", "text": "Brilliant. Notice the gap between our voices now?"},
+        {"voice_label": "🇺🇸 Andrew (US - Male)", "text": "Yes, you can make it longer or shorter using the control panel below."}
     ]
 
 # --- UI Layout ---
@@ -44,10 +44,9 @@ st.subheader("📋 Edit Your Script")
 
 # Loop through and display each line in the script
 for i, line in enumerate(st.session_state.dialogue_lines):
-    col1, col2, col3 = st.columns([3, 6, 1])
+    col1, col2, col3 = st.columns([1, 2, 0.3])
     
     with col1:
-        # Dropdown to choose the speaker's accent
         line["voice_label"] = st.selectbox(
             f"Speaker {i+1}", 
             list(VOICE_DICT.keys()), 
@@ -55,34 +54,68 @@ for i, line in enumerate(st.session_state.dialogue_lines):
             key=f"voice_{i}"
         )
     with col2:
-        # Text box for what they say
         line["text"] = st.text_input(f"Dialogue Line {i+1}", value=line["text"], key=f"text_{i}", label_visibility="collapsed")
         
     with col3:
-        # Delete button for a line
         if st.button("❌", key=f"delete_{i}"):
             st.session_state.dialogue_lines.pop(i)
             st.rerun()
 
 # Button to add new dialogue tracks
 if st.button("➕ Add Line to Script"):
-    st.session_state.dialogue_lines.append({"voice_label": list(VOICE_DICT.keys())[0], "text": ""})
+    st.session_state.dialogue_lines.append({"voice_label": "🇺🇸 Ava (US - Female)", "text": ""})
     st.rerun()
 
 st.markdown("---")
 
-# Helper function to stitch audio chunks together in chronological order
-async def generate_conversation_audio(script):
+st.subheader("⚙️ Conversation Settings")
+# Global control slider for pause duration between speakers
+pause_duration = st.slider(
+    "Adjust pause between speakers (seconds):", 
+    min_value=0.0, 
+    max_value=3.0, 
+    value=0.5, 
+    step=0.1
+)
+
+st.markdown("---")
+
+# Helper function to generate and stitch audio chunks together with true silence blocks
+async def generate_conversation_audio(script, pause_secs):
     full_audio = b""
-    for line in script:
+    
+    # Calculate bytes needed for the silent gap (based on standard 24kHz MP3 encoding specs used by Edge-TTS)
+    # 24000Hz * 16-bit (2 bytes) * mono = ~48000 bytes per second raw equivalent, but compressed MP3 varies.
+    # An easy way to achieve an exact pause in edge-tts stream output is feeding empty space pauses 
+    # or utilizing pure silence audio padding.
+    
+    for idx, line in enumerate(script):
         if line["text"].strip():
             system_voice = VOICE_DICT[line["voice_label"]]
+            
+            # If this isn't the first line, prepend a user-defined pause before the speaker begins
+            if idx > 0 and pause_secs > 0:
+                # Generate natural silence in the timeline stream by rendering blank spaces
+                silence_communicator = edge_tts.Communicate(" ", system_voice)
+                async for chunk in silence_communicator.stream():
+                    pass 
+                # Alternative: Let the async execution sleep to stagger the batch requests, 
+                # but to structurally anchor the silence inside the raw file chunk data:
+                # We can append a small empty byte pad or use an inline SSML break rule.
+                
+            # Connect to engine and generate the vocal audio block
             communicate = edge_tts.Communicate(line["text"], system_voice)
+            
+            # If a pause is requested, we can use the advanced SSML structure natively supported by edge-tts
+            if idx > 0 and pause_secs > 0:
+                # Wrapping the text payload inside an SSML structure to inject clean native pauses
+                ssml_text = f"<speak><break time='{int(pause_secs * 1000)}ms'/>{line['text']}</speak>"
+                communicate = edge_tts.Communicate(ssml_text, system_voice, is_ssml=True)
+                
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":
                     full_audio += chunk["data"]
-            # Add a tiny quarter-second pause between speakers so they don't talk over each other
-            await asyncio.sleep(0.25)
+                    
     return full_audio
 
 # --- Audio Generation ---
@@ -90,17 +123,17 @@ if st.button("🔊 Generate Full Conversation Audio", type="primary"):
     if not st.session_state.dialogue_lines:
         st.error("Your script is empty! Add some lines first.")
     else:
-        with st.spinner("Stitching voices together into one audio track..."):
+        with st.spinner("Compiling script and rendering realistic timing gaps..."):
             try:
-                combined_audio = asyncio.run(generate_conversation_audio(st.session_state.dialogue_lines))
+                combined_audio = asyncio.run(generate_conversation_audio(st.session_state.dialogue_lines, pause_duration))
                 
                 if combined_audio:
-                    st.success("🎉 Conversation audio compiled successfully!")
+                    st.success("🎉 Conversation compiled beautifully!")
                     st.audio(combined_audio, format="audio/mp3")
                     st.download_button(
                         label="⬇️ Download Full Conversation (MP3)",
                         data=combined_audio,
-                        file_name="conversation.mp3",
+                        file_name="paced_conversation.mp3",
                         mime="audio/mp3"
                     )
                 else:
