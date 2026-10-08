@@ -1,3 +1,4 @@
 streamlit
 edge-tts
+audioop-lts
 pydub
