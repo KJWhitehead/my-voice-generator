@@ -9,7 +9,7 @@ st.title("🗣 Text-to-Speech Voice Generator")
 
 # Configuration for your running OrbStack container
 API_URL = "https://travisvn.com"
-API_KEY = "your_api_key_here"
+API_KEY = ""
 
 # 1. Hardcoded list of premium Microsoft Edge English voices
 voice_options = [
